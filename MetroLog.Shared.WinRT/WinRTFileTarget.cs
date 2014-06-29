@@ -1,10 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,10 +14,12 @@ namespace MetroLog
     public abstract class WinRTFileTarget : FileTargetBase
     {
         private static StorageFolder _logFolder = null;
+        private readonly Semaphore _writeSemaphore;
 
 
         protected WinRTFileTarget(Layout layout) : base(layout)
         {
+            _writeSemaphore = new Semaphore(1,1);
         }
 
         public static async Task<StorageFolder> EnsureInitializedAsync()
@@ -93,8 +91,15 @@ namespace MetroLog
 
             var file = await _logFolder.CreateFileAsync(fileName, FileNamingParameters.CreationMode == FileCreationMode.AppendIfExisting ? CreationCollisionOption.OpenIfExists : CreationCollisionOption.ReplaceExisting);
 
-            // Write contents
-            await WriteTextToFileCore(file, contents);
+            _writeSemaphore.WaitOne();
+            try
+            {
+                WriteTextToFileCore(file, contents).Wait();
+            }
+            finally
+            {
+                _writeSemaphore.Release();
+            }
 
             // return...
             return new LogWriteOperation(this, entry, true);

@@ -1,9 +1,6 @@
-﻿using MetroLog.Layouts;
-using MetroLog.Targets;
+﻿using Windows.Storage.Streams;
+using MetroLog.Layouts;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Windows.Storage;
 
@@ -32,7 +29,27 @@ namespace MetroLog.Targets
 
         protected override Task WriteTextToFileCore(IStorageFile file, string contents)
         {
-            return FileIO.AppendTextAsync(file, contents + Environment.NewLine).AsTask();
+            // The original code causes serious issue in intensive multi-threaded scenarios throwing
+            // "File could not be replaced" exception, even though appending.
+            //return FileIO.AppendTextAsync(file, contents + Environment.NewLine).AsTask();
+
+            return Task.Run(async () =>
+            {
+                using (var fileStream = await file.OpenAsync(FileAccessMode.ReadWrite))
+                {
+                    using (var outputStream = fileStream.GetOutputStreamAt(fileStream.Size))
+                    {
+                        using (var dataWriter = new DataWriter(outputStream))
+                        {
+                            dataWriter.WriteString(contents + Environment.NewLine);
+                            await dataWriter.StoreAsync().AsTask();
+                            dataWriter.DetachStream();
+                        }
+
+                        await outputStream.FlushAsync();
+                    }
+                }
+            });
         }
     }
 }
